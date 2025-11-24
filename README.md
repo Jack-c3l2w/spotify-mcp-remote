@@ -11,6 +11,48 @@ Production-ready Model Context Protocol (MCP) server for Spotify with bulletproo
 - ⚡ **Smart retry logic** - Exponential backoff with rate limit handling
 - 🎯 **Conservative token management** - Only clears credentials when provably invalid
 
+## Example Usage
+
+Once set up, you can control Spotify using natural language prompts with Claude:
+
+### 🎵 Search & Discovery
+```
+"Search for AC/DC songs"
+"Find albums by The Beatles"
+"Search for rock playlists"
+"Find tech podcasts"
+"Search for The Beatles - show me tracks, albums, and playlists"
+```
+
+### ▶️ Playback Control
+```
+"Play Back in Black by AC/DC"
+"Play the album Highway to Hell"
+"Play my Discover Weekly playlist"
+"Pause the music"
+"Skip to the next song"
+"Go back to the previous track"
+"What's currently playing?"
+```
+
+### 🎚️ Advanced Controls
+```
+"Set volume to 50%"
+"Turn on shuffle"
+"Enable repeat"
+"Set repeat to one song only"
+"Turn off repeat"
+```
+
+### 📱 Device Management
+```
+"Show my Spotify devices"
+"Switch playback to my phone"
+"Transfer playback to my speaker"
+```
+
+All these operations work seamlessly with automatic token refresh, rate limiting, and error recovery.
+
 ## Installation
 
 ### Method 1: Prompt-Based Setup (Easiest)
@@ -19,7 +61,7 @@ Install via Claude CLI and let Claude guide you through setup:
 
 ```bash
 # Install the MCP server
-claude mcp add --transport stdio spotify -- npx -y @thebigredgeek/spotify-mcp-server
+claude mcp add --transport stdio spotify -- npx -y @tbrgeek/spotify-mcp-server
 
 # Restart Claude Code
 # (Fully quit and reopen)
@@ -43,7 +85,7 @@ For persistent credentials that survive restarts:
 
 ```bash
 # Install globally
-npm install -g @thebigredgeek/spotify-mcp-server
+npm install -g @tbrgeek/spotify-mcp-server
 
 # Run authentication
 spotify-mcp-server auth
@@ -66,7 +108,7 @@ export SPOTIFY_REFRESH_TOKEN="your_refresh_token"
 export SPOTIFY_ACCESS_TOKEN="your_access_token"
 
 # Install with environment variables
-claude mcp add --transport stdio spotify -- npx -y @thebigredgeek/spotify-mcp-server
+claude mcp add --transport stdio spotify -- npx -y @tbrgeek/spotify-mcp-server
 ```
 
 See **[Claude CLI Setup Guide](./docs/CLAUDE_CLI_SETUP.md)** for full environment variable setup.
@@ -126,7 +168,7 @@ Or use environment variables (see [Claude CLI Setup Guide](./docs/CLAUDE_CLI_SET
     "spotify": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@thebigredgeek/spotify-mcp-server"],
+      "args": ["-y", "@tbrgeek/spotify-mcp-server"],
       "env": {
         "SPOTIFY_CLIENT_ID": "${SPOTIFY_CLIENT_ID}",
         "SPOTIFY_CLIENT_SECRET": "${SPOTIFY_CLIENT_SECRET}",
@@ -147,7 +189,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "spotify": {
       "command": "npx",
-      "args": ["-y", "@thebigredgeek/spotify-mcp-server"]
+      "args": ["-y", "@tbrgeek/spotify-mcp-server"]
     }
   }
 }
@@ -174,7 +216,7 @@ The easiest way to set up the Spotify MCP server is to install it first, then le
 
 ```bash
 # Install via Claude CLI
-claude mcp add --transport stdio spotify -- npx -y @thebigredgeek/spotify-mcp-server
+claude mcp add --transport stdio spotify -- npx -y @tbrgeek/spotify-mcp-server
 
 # Restart Claude Code (fully quit and reopen)
 ```
@@ -197,7 +239,7 @@ Claude will respond with detailed setup instructions, including:
 **Running Authentication:**
 ```bash
 # Install globally
-npm install -g @thebigredgeek/spotify-mcp-server
+npm install -g @tbrgeek/spotify-mcp-server
 
 # Run authentication
 spotify-mcp-server auth
@@ -224,7 +266,7 @@ If you prefer to edit configuration files directly, here's how:
 
 1. **Run authentication** to generate credentials:
    ```bash
-   npm install -g @thebigredgeek/spotify-mcp-server
+   npm install -g @tbrgeek/spotify-mcp-server
    spotify-mcp-server auth
    ```
 
@@ -265,7 +307,7 @@ If you prefer to edit configuration files directly, here's how:
        "spotify": {
          "type": "stdio",
          "command": "npx",
-         "args": ["-y", "@thebigredgeek/spotify-mcp-server"],
+         "args": ["-y", "@tbrgeek/spotify-mcp-server"],
          "env": {
            "SPOTIFY_CLIENT_ID": "${SPOTIFY_CLIENT_ID}",
            "SPOTIFY_CLIENT_SECRET": "${SPOTIFY_CLIENT_SECRET}",
@@ -354,9 +396,21 @@ npm run lint
 
 ## Project Status
 
-**Phase 1 Complete**: Core infrastructure with bulletproof error handling and token management
+**Current Version**: Fully functional Spotify control with comprehensive search and playback capabilities
 
-**Next**: Implementing Spotify API tools (playback control, search, devices, playlists, library)
+✅ **Implemented Features:**
+- Core infrastructure with bulletproof error handling and token management
+- Comprehensive search (tracks, albums, playlists, podcasts)
+- Full playback control (play, pause, next, previous, volume)
+- Advanced playback features (shuffle, repeat modes, device management)
+- Multi-device support with transfer capabilities
+- Real-time playback state monitoring
+
+🚀 **Future Enhancements:**
+- User library management (saved tracks, albums, playlists)
+- Playlist creation and editing
+- Recently played tracks
+- User top tracks and artists
 
 ## License
 

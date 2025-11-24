@@ -140,6 +140,47 @@ describe('SpotifyClient', () => {
       expect(results).toEqual(mockTracks);
     });
 
+    it('should search multiple types', async () => {
+      const mockResults = {
+        tracks: { items: [{ id: '1', name: 'Track 1' }] },
+        albums: { items: [{ id: 'a1', name: 'Album 1' }] },
+        playlists: { items: [{ id: 'p1', name: 'Playlist 1' }] },
+      };
+
+      mockApi.search.mockResolvedValue(mockResults);
+
+      const results = await client.search('test query', ['track', 'album', 'playlist']);
+
+      expect(mockApi.search).toHaveBeenCalledWith('test query', ['track', 'album', 'playlist'], undefined, 10);
+      expect(results).toEqual(mockResults);
+    });
+
+    it('should search for playlists only', async () => {
+      const mockPlaylists = {
+        playlists: { items: [{ id: 'p1', name: 'Chill Vibes', owner: { display_name: 'User' } }] },
+      };
+
+      mockApi.search.mockResolvedValue(mockPlaylists);
+
+      const results = await client.search('chill', ['playlist']);
+
+      expect(mockApi.search).toHaveBeenCalledWith('chill', ['playlist'], undefined, 10);
+      expect(results).toEqual(mockPlaylists);
+    });
+
+    it('should search for shows (podcasts)', async () => {
+      const mockShows = {
+        shows: { items: [{ id: 's1', name: 'Tech Podcast', publisher: 'TechTalk', total_episodes: 50 }] },
+      };
+
+      mockApi.search.mockResolvedValue(mockShows);
+
+      const results = await client.search('tech', ['show']);
+
+      expect(mockApi.search).toHaveBeenCalledWith('tech', ['show'], undefined, 10);
+      expect(results).toEqual(mockShows);
+    });
+
     it('should constrain search limit to valid range', async () => {
       mockApi.search.mockResolvedValue({
         tracks: { items: [] },

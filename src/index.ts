@@ -90,17 +90,25 @@ async function main() {
           ? [
               {
                 name: 'spotify_search',
-                description: 'Search for tracks, artists, albums, or playlists on Spotify',
+                description: 'Search for tracks, albums, playlists, or shows (podcasts) on Spotify',
                 inputSchema: {
                   type: 'object',
                   properties: {
                     query: {
                       type: 'string',
-                      description: 'Search query (track name, artist, album, etc.)',
+                      description: 'Search query (track name, artist, album, playlist, etc.)',
+                    },
+                    types: {
+                      type: 'array',
+                      items: {
+                        type: 'string',
+                        enum: ['track', 'album', 'playlist', 'show'],
+                      },
+                      description: 'Types to search for (default: ["track", "album", "playlist"])',
                     },
                     limit: {
                       type: 'number',
-                      description: 'Maximum number of results (default: 10, max: 50)',
+                      description: 'Maximum number of results per type (default: 10, max: 50)',
                       minimum: 1,
                       maximum: 50,
                     },
@@ -352,31 +360,68 @@ async function main() {
     // Spotify API tools
     if (name === 'spotify_search') {
       try {
-        const { query, limit = 10 } = request.params.arguments as { query: string; limit?: number };
-        const tracks = await spotifyClient.searchTracks(query, limit);
+        const { query, types = ['track', 'album', 'playlist'], limit = 10 } = request.params.arguments as {
+          query: string;
+          types?: ('track' | 'album' | 'playlist' | 'show')[];
+          limit?: number;
+        };
 
-        const results = tracks.map((track) => ({
-          name: track.name,
-          artist: track.artists.map((a) => a.name).join(', '),
-          album: track.album.name,
-          uri: track.uri,
-          duration_ms: track.duration_ms,
-          preview_url: track.preview_url,
-        }));
+        const results = await spotifyClient.search(query, types, limit);
+        let output = '';
+
+        // Format tracks
+        if (results.tracks && results.tracks.items.length > 0) {
+          output += `## 🎵 Tracks (${results.tracks.items.length})\n\n`;
+          results.tracks.items.forEach((track, i) => {
+            output += `${i + 1}. **${track.name}** by ${track.artists.map((a) => a.name).join(', ')}\n`;
+            output += `   Album: ${track.album.name}\n`;
+            output += `   URI: \`${track.uri}\`\n`;
+            output += `   Duration: ${Math.floor(track.duration_ms / 1000 / 60)}:${String(Math.floor((track.duration_ms / 1000) % 60)).padStart(2, '0')}\n\n`;
+          });
+        }
+
+        // Format albums
+        if (results.albums && results.albums.items.length > 0) {
+          output += `## 💿 Albums (${results.albums.items.length})\n\n`;
+          results.albums.items.forEach((album, i) => {
+            output += `${i + 1}. **${album.name}** by ${album.artists.map((a) => a.name).join(', ')}\n`;
+            output += `   Release: ${album.release_date}\n`;
+            output += `   URI: \`${album.uri}\`\n`;
+            output += `   Tracks: ${album.total_tracks}\n\n`;
+          });
+        }
+
+        // Format playlists
+        if (results.playlists && results.playlists.items.length > 0) {
+          output += `## 📋 Playlists (${results.playlists.items.length})\n\n`;
+          results.playlists.items.forEach((playlist, i) => {
+            if (!playlist || !playlist.name) return; // Skip null playlists
+            output += `${i + 1}. **${playlist.name}**${playlist.owner ? ` by ${playlist.owner.display_name}` : ''}\n`;
+            output += `   URI: \`${playlist.uri}\`\n`;
+            const playlistAny = playlist as any;
+            if (playlistAny.tracks && playlistAny.tracks.total) {
+              output += `   Tracks: ${playlistAny.tracks.total}\n`;
+            }
+            output += `\n`;
+          });
+        }
+
+        // Format shows (podcasts)
+        if (results.shows && results.shows.items.length > 0) {
+          output += `## 🎙️ Podcasts (${results.shows.items.length})\n\n`;
+          results.shows.items.forEach((show, i) => {
+            output += `${i + 1}. **${show.name}** by ${show.publisher}\n`;
+            output += `   URI: \`${show.uri}\`\n`;
+            output += `   Episodes: ${show.total_episodes}\n\n`;
+          });
+        }
+
+        if (!output) {
+          output = '❌ No results found';
+        }
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Found ${results.length} tracks:\n\n` +
-                    results.map((t, i) =>
-                      `${i + 1}. **${t.name}** by ${t.artist}\n` +
-                      `   Album: ${t.album}\n` +
-                      `   URI: \`${t.uri}\`\n` +
-                      `   Duration: ${Math.floor(t.duration_ms / 1000 / 60)}:${String(Math.floor((t.duration_ms / 1000) % 60)).padStart(2, '0')}`
-                    ).join('\n\n'),
-            },
-          ],
+          content: [{ type: 'text', text: output }],
         };
       } catch (error: any) {
         return {

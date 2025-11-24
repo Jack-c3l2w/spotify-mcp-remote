@@ -53,6 +53,18 @@ export class SpotifyClient {
   }
 
   /**
+   * Search for multiple types (tracks, albums, playlists, shows)
+   */
+  async search(query: string, types: ('track' | 'album' | 'playlist' | 'show')[], limit: number = 10) {
+    return withRetry(async () => {
+      const api = await this.getApi();
+      const validLimit = Math.min(Math.max(limit, 1), 50) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 50;
+      const results = await api.search(query, types, undefined, validLimit);
+      return results;
+    }, undefined, `search: ${query}`);
+  }
+
+  /**
    * Get available devices
    */
   async getDevices() {
