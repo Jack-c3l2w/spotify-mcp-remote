@@ -1,5 +1,5 @@
 {
-  "name": "@thebigredgeek/spotify-mcp-server",
+  "name": "@tbrgeek/spotify-mcp-server",
   "version": "1.0.0",
   "description": "Production-ready MCP server for Spotify control with bulletproof error handling",
   "type": "module",
