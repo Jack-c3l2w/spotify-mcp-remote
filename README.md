@@ -55,6 +55,11 @@ All these operations work seamlessly with automatic token refresh, rate limiting
 
 ## Installation
 
+
+### BEFORE:
+
+You need to set up a Spotify developer app to get a client id and secret.  This will be used to authenticate the MCP server.
+
 ### Method 1: Prompt-Based Setup (Easiest)
 
 Install via Claude CLI and let Claude guide you through setup:
@@ -68,9 +73,7 @@ claude mcp add --transport stdio spotify -- npx -y @tbrgeek/spotify-mcp-server
 ```
 
 The server starts without credentials and provides setup instructions when you need them. Simply ask Claude:
-- "How do I set up Spotify?"
-- "Check Spotify health"
-- "Get Spotify authentication status"
+- "Authenticate the spotify mcp server"
 
 Claude will provide step-by-step setup instructions including:
 1. Creating a Spotify app
