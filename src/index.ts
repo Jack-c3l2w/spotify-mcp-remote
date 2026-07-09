@@ -686,7 +686,21 @@ async function startHttpServer(
     next();
   };
 
-  app.post('/mcp', requireAuth, async (req, res) => {
+  // The SDK's Streamable HTTP transport rejects POSTs whose Accept header doesn't
+  // literally list both mime types (MCP spec requirement). Real-world clients
+  // (Poke included) don't always send it, so normalize it here rather than 406
+  // every client that isn't byte-for-byte spec-compliant.
+  const normalizeAccept = (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+    const accept = req.headers.accept || '';
+    const hasJson = accept.includes('application/json');
+    const hasEventStream = accept.includes('text/event-stream');
+    if (!hasJson || !hasEventStream) {
+      req.headers.accept = 'application/json, text/event-stream';
+    }
+    next();
+  };
+
+  app.post('/mcp', requireAuth, normalizeAccept, async (req, res) => {
     try {
       // Stateless mode: a fresh Server + transport per request, per the MCP SDK's
       // recommended pattern for deployments that don't pin a client to one process.
