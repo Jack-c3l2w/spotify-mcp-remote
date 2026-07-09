@@ -672,18 +672,39 @@ async function startHttpServer(
     res.json({ status: 'ok' });
   });
 
+  // Clients disagree on how to send the key: Poke's integration form has a bare
+  // "API Key" field and doesn't document the header it ends up in. Accept the
+  // token as `Authorization: Bearer <t>`, bare `Authorization: <t>`, or
+  // `X-Api-Key: <t>`, and log header names (never values) on failure so we can
+  // see what an incompatible client actually sent.
   const requireAuth = (
     req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ) => {
-    const header = req.headers.authorization || '';
-    const expected = `Bearer ${authToken}`;
-    if (!safeTokenEquals(header, expected)) {
-      res.status(401).json({ error: 'Unauthorized' });
+    const rawAuth = req.headers.authorization || '';
+    const bearerValue = rawAuth.replace(/^Bearer\s+/i, '');
+    const apiKeyHeader = req.headers['x-api-key'];
+    const apiKeyValue = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader || '';
+
+    const candidates = [rawAuth, bearerValue, apiKeyValue].filter(Boolean);
+    if (candidates.some((c) => safeTokenEquals(c, authToken))) {
+      next();
       return;
     }
-    next();
+
+    logger.warn(
+      {
+        headerNames: Object.keys(req.headers),
+        authScheme: rawAuth ? rawAuth.split(' ')[0].slice(0, 20) : '(none)',
+        authLength: rawAuth.length,
+        hasApiKeyHeader: Boolean(apiKeyValue),
+        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+      },
+      'Rejected MCP request: no valid auth token'
+    );
+    res.status(401).json({ error: 'Unauthorized' });
   };
 
   // The SDK's Streamable HTTP transport rejects POSTs whose Accept header doesn't
