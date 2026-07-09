@@ -53,6 +53,43 @@ Once set up, you can control Spotify using natural language prompts with Claude:
 
 All these operations work seamlessly with automatic token refresh, rate limiting, and error recovery.
 
+## Remote HTTP deployment (this fork)
+
+This fork adds a Streamable HTTP transport alongside the original stdio mode, so the
+server can run on a remote host and be used by clients that connect over the internet
+(e.g. Poke). Original repo: [thebigredgeek/spotify-mcp-server](https://github.com/thebigredgeek/spotify-mcp-server).
+
+- **Transport switch:** if `PORT` or `MCP_PORT` is set, the server listens over HTTP
+  instead of stdio (`src/index.ts`, `main()`). `/mcp` accepts POST (stateless — a fresh
+  `Server` + transport per request); GET/DELETE return 405 per the stateless pattern.
+  `/health` is unauthenticated, for container healthchecks.
+- **Auth:** every `/mcp` request needs `Authorization: Bearer $MCP_AUTH_TOKEN`
+  (constant-time compare). No token env var set ⇒ the process refuses to start in HTTP mode.
+- **Accept-header normalization:** the MCP SDK's Streamable HTTP transport 406s any POST
+  whose `Accept` header doesn't literally list both `application/json` and
+  `text/event-stream`. Not every real-world client sends that (Poke didn't, and it
+  surfaced there as a generic "Invalid MCP server URL" error). `normalizeAccept`
+  middleware fills the header in server-side before it reaches the SDK's check.
+- **Auth via env vars only:** `TokenManager.initialize()` in the original code already
+  supported an env-var fallback (`SPOTIFY_CLIENT_ID`/`_CLIENT_SECRET`/`_ACCESS_TOKEN`/
+  `_REFRESH_TOKEN`/`_EXPIRES_AT`/`_SCOPES`/`_REDIRECT_URI`) for headless deployments —
+  no code changes needed there. Set `SPOTIFY_EXPIRES_AT=0` so the placeholder access
+  token is never actually used; the server refreshes immediately on first request.
+- **Getting a refresh token:** the interactive `npm run auth` CLI is broken against piped
+  (non-TTY) stdin — `readline` throws `ERR_USE_AFTER_CLOSE` once stdin hits EOF between
+  prompts. Run it in a real terminal, or call `authorizeWithSpotify()` /
+  `CredentialStore` directly from a small script with client id/secret as env vars
+  (skips readline entirely, still opens a real browser via the `open` package for the
+  one-time consent screen).
+- **Docker gotcha:** `npm ci` (with or without `--omit=dev`) runs the `prepare`
+  lifecycle script (`tsc`), and in a multi-stage build source files aren't necessarily
+  present yet when that fires — bare `tsc` then just prints `--help` and exits non-zero,
+  failing the build. Use `--ignore-scripts` on every `npm ci` in the `Dockerfile`; the
+  build stage calls `npm run build` explicitly afterward anyway.
+- **Deploying:** built and run via the included `Dockerfile` (`ENV PORT=8000` default,
+  overridden at runtime). No app code changes needed to deploy on most container
+  platforms — set the env vars above plus `MCP_AUTH_TOKEN`, expose the port, done.
+
 ## Installation
 
 
