@@ -5,8 +5,11 @@
  * Entry point for Model Context Protocol server
  */
 
+import crypto from 'crypto';
+import express from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -16,25 +19,7 @@ import { TokenManager } from './auth/token-manager.js';
 import { SpotifyClient } from './client/spotify-client.js';
 import { logger } from './utils/logger.js';
 
-async function main() {
-  // Initialize credential store and token manager
-  const credentialStore = new CredentialStore();
-  const tokenManager = new TokenManager(credentialStore);
-  const spotifyClient = new SpotifyClient(tokenManager);
-
-  try {
-    await tokenManager.initialize();
-
-    if (!tokenManager.isConfigured()) {
-      logger.warn('Starting without credentials - authentication tools available');
-    } else {
-      logger.info('Token manager initialized successfully');
-    }
-  } catch (error) {
-    logger.error({ error }, 'Failed to initialize token manager');
-    // Continue anyway - let tools handle auth errors gracefully
-  }
-
+function createServer(tokenManager: TokenManager, spotifyClient: SpotifyClient): Server {
   // Create MCP server
   const server = new Server(
     {
@@ -658,11 +643,117 @@ async function main() {
     };
   });
 
-  // Start server with stdio transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  return server;
+}
 
-  logger.info('Spotify MCP server started');
+/** Constant-time comparison to avoid leaking the auth token via timing. */
+function safeTokenEquals(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+async function startHttpServer(
+  tokenManager: TokenManager,
+  spotifyClient: SpotifyClient,
+  port: number
+) {
+  const authToken = process.env.MCP_AUTH_TOKEN;
+  if (!authToken) {
+    logger.error('MCP_AUTH_TOKEN must be set when running in HTTP mode');
+    process.exit(1);
+  }
+
+  const app = express();
+  app.use(express.json());
+
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
+
+  const requireAuth = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const header = req.headers.authorization || '';
+    const expected = `Bearer ${authToken}`;
+    if (!safeTokenEquals(header, expected)) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    next();
+  };
+
+  app.post('/mcp', requireAuth, async (req, res) => {
+    try {
+      // Stateless mode: a fresh Server + transport per request, per the MCP SDK's
+      // recommended pattern for deployments that don't pin a client to one process.
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      res.on('close', () => {
+        transport.close();
+      });
+      const server = createServer(tokenManager, spotifyClient);
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      logger.error({ error }, 'Error handling MCP request');
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error' },
+          id: null,
+        });
+      }
+    }
+  });
+
+  const methodNotAllowed = (_req: express.Request, res: express.Response) => {
+    res.status(405).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Method not allowed.' },
+      id: null,
+    });
+  };
+  app.get('/mcp', requireAuth, methodNotAllowed);
+  app.delete('/mcp', requireAuth, methodNotAllowed);
+
+  app.listen(port, () => {
+    logger.info({ port }, 'Spotify MCP server started (HTTP, streamable transport)');
+  });
+}
+
+async function main() {
+  // Initialize credential store and token manager
+  const credentialStore = new CredentialStore();
+  const tokenManager = new TokenManager(credentialStore);
+  const spotifyClient = new SpotifyClient(tokenManager);
+
+  try {
+    await tokenManager.initialize();
+
+    if (!tokenManager.isConfigured()) {
+      logger.warn('Starting without credentials - authentication tools available');
+    } else {
+      logger.info('Token manager initialized successfully');
+    }
+  } catch (error) {
+    logger.error({ error }, 'Failed to initialize token manager');
+    // Continue anyway - let tools handle auth errors gracefully
+  }
+
+  const port = process.env.PORT || process.env.MCP_PORT;
+  if (port) {
+    await startHttpServer(tokenManager, spotifyClient, parseInt(port, 10));
+  } else {
+    const server = createServer(tokenManager, spotifyClient);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    logger.info('Spotify MCP server started (stdio)');
+  }
 }
 
 main().catch((error) => {
