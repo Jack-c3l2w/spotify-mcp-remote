@@ -93,9 +93,9 @@ function createServer(tokenManager: TokenManager, spotifyClient: SpotifyClient):
                     },
                     limit: {
                       type: 'number',
-                      description: 'Maximum number of results per type (default: 10, max: 50)',
+                      description: 'Maximum number of results per type (default: 10, max: 10)',
                       minimum: 1,
-                      maximum: 50,
+                      maximum: 10,
                     },
                   },
                   required: ['query'],
@@ -196,6 +196,125 @@ function createServer(tokenManager: TokenManager, spotifyClient: SpotifyClient):
                     },
                   },
                   required: ['volume'],
+                },
+              },
+              {
+                name: 'spotify_get_playlists',
+                description: "Get the user's own playlists (name, URI, id, track count)",
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    limit: {
+                      type: 'number',
+                      description: 'Maximum number of playlists (default: 20, max: 50)',
+                      minimum: 1,
+                      maximum: 50,
+                    },
+                    offset: {
+                      type: 'number',
+                      description: 'Offset for pagination (default: 0)',
+                      minimum: 0,
+                    },
+                  },
+                },
+              },
+              {
+                name: 'spotify_create_playlist',
+                description: "Create a new playlist on the user's Spotify account",
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    name: {
+                      type: 'string',
+                      description: 'Name of the playlist',
+                    },
+                    description: {
+                      type: 'string',
+                      description: 'Playlist description (optional)',
+                    },
+                    public: {
+                      type: 'boolean',
+                      description: 'Whether the playlist is public (default: false)',
+                    },
+                    track_uris: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description:
+                        'Spotify track URIs to add right away (optional, e.g. ["spotify:track:..."])',
+                    },
+                  },
+                  required: ['name'],
+                },
+              },
+              {
+                name: 'spotify_add_tracks_to_playlist',
+                description: 'Add tracks to an existing playlist',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    playlist_id: {
+                      type: 'string',
+                      description:
+                        'Playlist ID, URI (spotify:playlist:...) or open.spotify.com URL',
+                    },
+                    track_uris: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: 'Spotify track URIs to add (e.g. ["spotify:track:..."])',
+                    },
+                    position: {
+                      type: 'number',
+                      description: 'Position to insert at (optional, appends by default)',
+                      minimum: 0,
+                    },
+                  },
+                  required: ['playlist_id', 'track_uris'],
+                },
+              },
+              {
+                name: 'spotify_remove_tracks_from_playlist',
+                description: 'Remove tracks from a playlist',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    playlist_id: {
+                      type: 'string',
+                      description:
+                        'Playlist ID, URI (spotify:playlist:...) or open.spotify.com URL',
+                    },
+                    track_uris: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: 'Spotify track URIs to remove',
+                    },
+                  },
+                  required: ['playlist_id', 'track_uris'],
+                },
+              },
+              {
+                name: 'spotify_get_playlist_tracks',
+                description: 'List the tracks in a playlist',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    playlist_id: {
+                      type: 'string',
+                      description:
+                        'Playlist ID, URI (spotify:playlist:...) or open.spotify.com URL',
+                    },
+                    limit: {
+                      type: 'number',
+                      description: 'Maximum number of tracks (default: 50, max: 50)',
+                      minimum: 1,
+                      maximum: 50,
+                    },
+                    offset: {
+                      type: 'number',
+                      description: 'Offset for pagination (default: 0)',
+                      minimum: 0,
+                    },
+                  },
+                  required: ['playlist_id'],
                 },
               },
             ]
@@ -384,8 +503,10 @@ function createServer(tokenManager: TokenManager, spotifyClient: SpotifyClient):
             output += `${i + 1}. **${playlist.name}**${playlist.owner ? ` by ${playlist.owner.display_name}` : ''}\n`;
             output += `   URI: \`${playlist.uri}\`\n`;
             const playlistAny = playlist as any;
-            if (playlistAny.tracks && playlistAny.tracks.total) {
-              output += `   Tracks: ${playlistAny.tracks.total}\n`;
+            // Feb 2026 migration renamed the playlist "tracks" field to "items"
+            const trackRef = playlistAny.items ?? playlistAny.tracks;
+            if (trackRef && trackRef.total) {
+              output += `   Tracks: ${trackRef.total}\n`;
             }
             output += `\n`;
           });
@@ -632,6 +753,185 @@ function createServer(tokenManager: TokenManager, spotifyClient: SpotifyClient):
       }
     }
 
+    if (name === 'spotify_get_playlists') {
+      try {
+        const { limit = 20, offset = 0 } = (request.params.arguments || {}) as {
+          limit?: number;
+          offset?: number;
+        };
+
+        const page = await spotifyClient.getMyPlaylists(limit, offset);
+
+        if (page.items.length === 0) {
+          return {
+            content: [{ type: 'text', text: '📋 No playlists found' }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `Found ${page.items.length} playlist(s) (of ${page.total} total):\n\n` +
+                page.items
+                  .filter((p: any) => p && p.name)
+                  .map(
+                    (p: any, i: number) =>
+                      `${i + 1 + offset}. **${p.name}**${p.owner ? ` by ${p.owner.display_name}` : ''}\n` +
+                      `   URI: \`${p.uri}\`\n` +
+                      `   ID: \`${p.id}\`\n` +
+                      // Feb 2026 migration renamed the playlist "tracks" field to "items"
+                      `   Tracks: ${(p.items ?? p.tracks)?.total ?? '?'}${p.public ? ' (public)' : ''}`
+                  )
+                  .join('\n\n'),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Failed to get playlists: ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+
+    if (name === 'spotify_create_playlist') {
+      try {
+        const { name: playlistName, description, public: isPublic = false, track_uris } =
+          request.params.arguments as {
+            name: string;
+            description?: string;
+            public?: boolean;
+            track_uris?: string[];
+          };
+
+        const playlist = await spotifyClient.createPlaylist(playlistName, description, isPublic);
+
+        let addedNote = '';
+        if (track_uris && track_uris.length > 0) {
+          await spotifyClient.addTracksToPlaylist(playlist.id, track_uris);
+          addedNote = `\nAdded ${track_uris.length} track(s)`;
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `✅ Playlist **${playlist.name}** created!${addedNote}\n` +
+                `URI: \`${playlist.uri}\`\n` +
+                `ID: \`${playlist.id}\`\n` +
+                `Link: ${playlist.external_urls?.spotify || ''}`,
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Failed to create playlist: ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+
+    if (name === 'spotify_add_tracks_to_playlist') {
+      try {
+        const { playlist_id, track_uris, position } = request.params.arguments as {
+          playlist_id: string;
+          track_uris: string[];
+          position?: number;
+        };
+
+        await spotifyClient.addTracksToPlaylist(
+          normalizePlaylistId(playlist_id),
+          track_uris,
+          position
+        );
+
+        return {
+          content: [
+            { type: 'text', text: `✅ Added ${track_uris.length} track(s) to the playlist` },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Failed to add tracks: ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+
+    if (name === 'spotify_remove_tracks_from_playlist') {
+      try {
+        const { playlist_id, track_uris } = request.params.arguments as {
+          playlist_id: string;
+          track_uris: string[];
+        };
+
+        await spotifyClient.removeTracksFromPlaylist(normalizePlaylistId(playlist_id), track_uris);
+
+        return {
+          content: [
+            { type: 'text', text: `✅ Removed ${track_uris.length} track(s) from the playlist` },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Failed to remove tracks: ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+
+    if (name === 'spotify_get_playlist_tracks') {
+      try {
+        const { playlist_id, limit = 50, offset = 0 } = request.params.arguments as {
+          playlist_id: string;
+          limit?: number;
+          offset?: number;
+        };
+
+        const page = await spotifyClient.getPlaylistTracks(
+          normalizePlaylistId(playlist_id),
+          limit,
+          offset
+        );
+
+        if (page.items.length === 0) {
+          return {
+            content: [{ type: 'text', text: '📋 Playlist is empty' }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `${page.items.length} track(s) (of ${page.total} total):\n\n` +
+                page.items
+                  // Feb 2026 migration renamed the playlist entry field "track" to "item"
+                  .filter((entry: any) => entry && (entry.item || entry.track))
+                  .map((entry: any, i: number) => {
+                    const track = (entry.item ?? entry.track) as any;
+                    return (
+                      `${i + 1 + offset}. **${track.name}**` +
+                      (track.artists ? ` by ${track.artists.map((a: any) => a.name).join(', ')}` : '') +
+                      `\n   URI: \`${track.uri}\``
+                    );
+                  })
+                  .join('\n\n'),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Failed to get playlist tracks: ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+
     return {
       content: [
         {
@@ -644,6 +944,18 @@ function createServer(tokenManager: TokenManager, spotifyClient: SpotifyClient):
   });
 
   return server;
+}
+
+/**
+ * Accept a playlist as a bare ID, a spotify:playlist:... URI, or an
+ * open.spotify.com URL, and return the bare ID the API expects.
+ */
+function normalizePlaylistId(input: string): string {
+  const uriMatch = input.match(/^spotify:playlist:([A-Za-z0-9]+)$/);
+  if (uriMatch) return uriMatch[1];
+  const urlMatch = input.match(/open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/);
+  if (urlMatch) return urlMatch[1];
+  return input;
 }
 
 /** Constant-time comparison to avoid leaking the auth token via timing. */

@@ -45,8 +45,8 @@ export class SpotifyClient {
   async searchTracks(query: string, limit: number = 10) {
     return withRetry(async () => {
       const api = await this.getApi();
-      // Spotify SDK has strict limit types, constrain to valid values
-      const validLimit = Math.min(Math.max(limit, 1), 50) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 50;
+      // Feb 2026 migration: Development Mode search caps limit at 10 (400 above that)
+      const validLimit = Math.min(Math.max(limit, 1), 10) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
       const results = await api.search(query, ['track'], undefined, validLimit);
       return results.tracks.items;
     }, undefined, `search tracks: ${query}`);
@@ -58,7 +58,8 @@ export class SpotifyClient {
   async search(query: string, types: ('track' | 'album' | 'playlist' | 'show')[], limit: number = 10) {
     return withRetry(async () => {
       const api = await this.getApi();
-      const validLimit = Math.min(Math.max(limit, 1), 50) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 50;
+      // Feb 2026 migration: Development Mode search caps limit at 10 (400 above that)
+      const validLimit = Math.min(Math.max(limit, 1), 10) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
       const results = await api.search(query, types, undefined, validLimit);
       return results;
     }, undefined, `search: ${query}`);
@@ -180,5 +181,91 @@ export class SpotifyClient {
       const api = await this.getApi();
       await api.player.setRepeatMode(state, deviceId);
     }, undefined, `set repeat ${state}`);
+  }
+
+  /**
+   * Direct Spotify Web API call, bypassing the SDK.
+   *
+   * Spotify's February 2026 migration moved Development Mode apps to new
+   * playlist endpoints (POST /me/playlists, /playlists/{id}/items instead of
+   * /tracks) that the @spotify/web-api-ts-sdk still doesn't know about — the
+   * SDK's playlist methods now 403. See:
+   * https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide
+   */
+  private async apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
+    await this.getApi(); // refreshes the token if needed
+    const accessToken = this.tokenManager.getAccessToken();
+    const res = await fetch(`https://api.spotify.com/v1${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...(init?.headers as Record<string, string> | undefined),
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Spotify API ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
+  }
+
+  /**
+   * Get current user's playlists
+   */
+  async getMyPlaylists(limit: number = 20, offset: number = 0) {
+    return withRetry(async () => {
+      const validLimit = Math.min(Math.max(limit, 1), 50);
+      return await this.apiFetch(`/me/playlists?limit=${validLimit}&offset=${offset}`);
+    }, undefined, 'get my playlists');
+  }
+
+  /**
+   * Create a playlist on the current user's account
+   */
+  async createPlaylist(name: string, description?: string, isPublic: boolean = false) {
+    return withRetry(async () => {
+      return await this.apiFetch('/me/playlists', {
+        method: 'POST',
+        body: JSON.stringify({ name, description, public: isPublic }),
+      });
+    }, undefined, `create playlist: ${name}`);
+  }
+
+  /**
+   * Add tracks to a playlist
+   */
+  async addTracksToPlaylist(playlistId: string, trackUris: string[], position?: number) {
+    return withRetry(async () => {
+      await this.apiFetch(`/playlists/${playlistId}/items`, {
+        method: 'POST',
+        body: JSON.stringify({ uris: trackUris, ...(position !== undefined ? { position } : {}) }),
+      });
+    }, undefined, `add ${trackUris.length} tracks to playlist ${playlistId}`);
+  }
+
+  /**
+   * Remove tracks from a playlist
+   */
+  async removeTracksFromPlaylist(playlistId: string, trackUris: string[]) {
+    return withRetry(async () => {
+      await this.apiFetch(`/playlists/${playlistId}/items`, {
+        method: 'DELETE',
+        body: JSON.stringify({ items: trackUris.map((uri) => ({ uri })) }),
+      });
+    }, undefined, `remove ${trackUris.length} tracks from playlist ${playlistId}`);
+  }
+
+  /**
+   * Get tracks in a playlist
+   */
+  async getPlaylistTracks(playlistId: string, limit: number = 50, offset: number = 0) {
+    return withRetry(async () => {
+      const validLimit = Math.min(Math.max(limit, 1), 50);
+      return await this.apiFetch(
+        `/playlists/${playlistId}/items?limit=${validLimit}&offset=${offset}`
+      );
+    }, undefined, `get tracks in playlist ${playlistId}`);
   }
 }
